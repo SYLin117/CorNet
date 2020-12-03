@@ -15,6 +15,9 @@ from deepxml.meshprobenet import MeSHProbeNet, CorNetMeSHProbeNet
 from deepxml.bertxml import BertXML, CorNetBertXML
 from deepxml.xmlcnn import XMLCNN, CorNetXMLCNN
 
+import parameter
+pa = parameter.Parameter()
+
 model_dict = {
         'AttentionXML': AttentionXML,
         'CorNetAttentionXML': CorNetAttentionXML,
@@ -32,39 +35,61 @@ model_dict = {
 @click.option('-m', '--model-cnf', type=click.Path(exists=True), help='Path of model configure yaml.')
 @click.option('--mode', type=click.Choice(['train', 'eval']), default=None)
 def main(data_cnf, model_cnf, mode):
+    data_cnf = pa.data_cnf
+    model_cnf = pa.model_cnf
+
     yaml = YAML(typ='safe')
     data_cnf, model_cnf = yaml.load(Path(data_cnf)), yaml.load(Path(model_cnf))
+    print(data_cnf['labels_binarizer'])
+    print("~~~~~~~~~~~~~~~")
+    print(data_cnf['embedding'])
+    print(data_cnf['valid'])
+    print(model_cnf)
+    print(data_cnf['model'])
+    print(model_cnf['model'])
+
     model, model_name, data_name = None, model_cnf['name'], data_cnf['name']
-    model_path = os.path.join(model_cnf['path'], F'{model_name}-{data_name}')
-    emb_init = get_word_emb(data_cnf['embedding']['emb_init'])
+    print(model, model_name, data_name)  # None XMLCNN EUR-Lex
+    model_path = os.path.join(pa.models, F'{model_name}-{data_name}')
+    print(model_path)
+    emb_init = get_word_emb(pa.emb)
+    print(emb_init.shape)  # (166402, 300)
     logger.info(F'Model Name: {model_name}')
 
     if mode is None or mode == 'train':
         logger.info('Loading Training and Validation Set')
-        train_x, train_labels = get_data(data_cnf['train']['texts'], data_cnf['train']['labels'])
+        train_x, train_labels = get_data(pa.train_texts, pa.train_labels)
+        print(train_x.shape, train_labels.shape)  # (15449, 500) (15449,)
         if 'size' in data_cnf['valid']:
             random_state = data_cnf['valid'].get('random_state', 1240)
+            print(random_state)  # 1240
             train_x, valid_x, train_labels, valid_labels = train_test_split(train_x, train_labels,
                                                                             test_size=data_cnf['valid']['size'],
                                                                             random_state=random_state)
         else:
             valid_x, valid_labels = get_data(data_cnf['valid']['texts'], data_cnf['valid']['labels'])
-        mlb = get_mlb(data_cnf['labels_binarizer'], np.hstack((train_labels, valid_labels)))
+        mlb = get_mlb(pa.labels_binarizer, np.hstack((train_labels, valid_labels)))
+        print(type(mlb))  # <class 'sklearn.preprocessing._label.MultiLabelBinarizer'>
         train_y, valid_y = mlb.transform(train_labels), mlb.transform(valid_labels)
         labels_num = len(mlb.classes_)
-        logger.info(F'Number of Labels: {labels_num}')
-        logger.info(F'Size of Training Set: {len(train_x)}')
-        logger.info(F'Size of Validation Set: {len(valid_x)}')
+        logger.info(F'Number of Labels: {labels_num}')  # 3801
+        logger.info(F'Size of Training Set: {len(train_x)}')  # 15249
+        logger.info(F'Size of Validation Set: {len(valid_x)}')  # 200
 
         logger.info('Training')
+        print("Training")
+        print(model_cnf['train']['batch_size'])  # 40
         train_loader = DataLoader(MultiLabelDataset(train_x, train_y),
                                   model_cnf['train']['batch_size'], shuffle=True, num_workers=4)
+        print(model_cnf['valid']['batch_size']) # 40
         valid_loader = DataLoader(MultiLabelDataset(valid_x, valid_y, training=True),
                                   model_cnf['valid']['batch_size'], num_workers=4)
         if 'gpipe' not in model_cnf:
+            print("not in")
             model = Model(network=model_dict[model_name], labels_num=labels_num, model_path=model_path, emb_init=emb_init,
                           **data_cnf['model'], **model_cnf['model'])
         else:
+            print("in")
             model = GPipeModel(model_name, labels_num=labels_num, model_path=model_path, emb_init=emb_init,
                                **data_cnf['model'], **model_cnf['model'])
         model.train(train_loader, valid_loader, **model_cnf['train'])
@@ -92,6 +117,7 @@ def main(data_cnf, model_cnf, mode):
         labels = mlb.classes_[labels]
         output_res(data_cnf['output']['res'], F'{model_name}-{data_name}', scores, labels)
 
+tl = "/Users/mm/Documents/Course_Information/Data_Mining/EUR-Lex/train_labels.txt"
 
 if __name__ == '__main__':
     main()
