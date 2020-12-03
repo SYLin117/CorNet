@@ -17,6 +17,7 @@ from deepxml.xmlcnn import XMLCNN, CorNetXMLCNN
 
 import parameter
 pa = parameter.Parameter()
+a = 1
 
 model_dict = {
         'AttentionXML': AttentionXML,
