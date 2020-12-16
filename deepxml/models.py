@@ -16,8 +16,10 @@ from torchgpipe import GPipe
 
 
 class Model(object):
+
     def __init__(self, network, model_path, gradient_clip_value=5.0, device_ids=None, **kwargs):
-        self.model = nn.DataParallel(network(**kwargs).cuda(), device_ids=device_ids)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model = nn.DataParallel(network(**kwargs).to(self.device), device_ids=device_ids)
         self.loss_fn = nn.BCEWithLogitsLoss()
         self.model_path, self.state = model_path, {}
         os.makedirs(os.path.split(self.model_path)[0], exist_ok=True)
@@ -27,7 +29,10 @@ class Model(object):
     def train_step(self, train_x: torch.Tensor, train_y: torch.Tensor):
         self.optimizer.zero_grad()
         self.model.train()
-        scores = self.model(train_x)
+        # 原始寫法
+        # scores = self.model(train_x)
+        # 原本會出現error: RuntimeError: Expected tensor for argument #1 'indices' to have scalar type Long; but got torch.cuda.DoubleTensor instead (while checking arguments for embedding)
+        scores = self.model(train_x.long())
         loss = self.loss_fn(scores, train_y)
         loss.backward()
         self.clip_gradient()
@@ -47,14 +52,14 @@ class Model(object):
               nb_epoch=100, step=100, k=5, early=100, verbose=True, swa_warmup=None, **kwargs):
         self.get_optimizer(**({} if opt_params is None else opt_params))
         global_step, best_n5, e = 0, 0.0, 0
-        print_loss = 0.0#
+        print_loss = 0.0  #
         for epoch_idx in range(nb_epoch):
             if epoch_idx == swa_warmup:
                 self.swa_init()
             for i, (train_x, train_y) in enumerate(train_loader, 1):
                 global_step += 1
                 loss = self.train_step(train_x, train_y.cuda())
-                print_loss += loss#
+                print_loss += loss  #
                 if global_step % step == 0:
                     self.swa_step()
                     self.swap_swa_params()
@@ -64,18 +69,20 @@ class Model(object):
                     self.model.eval()
                     with torch.no_grad():
                         for (valid_x, valid_y) in valid_loader:
-                            logits = self.model(valid_x)
+                            # 原始寫法
+                            # logits = self.model(valid_x)
+                            logits = self.model(valid_x.long())
                             valid_loss += self.loss_fn(logits, valid_y.cuda()).item()
                             scores, tmp = torch.topk(logits, k)
                             labels.append(tmp.cpu())
                     valid_loss /= len(valid_loader)
                     labels = np.concatenate(labels)
                     ##
-#                    labels = np.concatenate([self.predict_step(valid_x, k)[1] for valid_x in valid_loader])
+                    #                    labels = np.concatenate([self.predict_step(valid_x, k)[1] for valid_x in valid_loader])
                     targets = valid_loader.dataset.data_y
                     p5, n5 = get_p_5(labels, targets), get_n_5(labels, targets)
                     if n5 > best_n5:
-                        self.save_model(True)#epoch_idx > 1 * swa_warmup)
+                        self.save_model(True)  # epoch_idx > 1 * swa_warmup)
                         best_n5, e = n5, 0
                     else:
                         e += 1
@@ -84,7 +91,8 @@ class Model(object):
                     self.swap_swa_params()
                     if verbose:
                         log_msg = '%d %d train loss: %.7f valid loss: %.7f P@5: %.5f N@5: %.5f early stop: %d' % \
-                        (epoch_idx, i * train_loader.batch_size, print_loss / step, valid_loss, round(p5, 5), round(n5, 5), e)
+                                  (epoch_idx, i * train_loader.batch_size, print_loss / step, valid_loss, round(p5, 5),
+                                   round(n5, 5), e)
                         logger.info(log_msg)
                         print_loss = 0.0
 
@@ -97,7 +105,7 @@ class Model(object):
     def save_model(self, last_epoch):
         if not last_epoch: return
         for trial in range(5):
-            try:                
+            try:
                 torch.save(self.model.module.state_dict(), self.model_path)
                 break
             except:
@@ -177,15 +185,15 @@ class GPipeModel(object):
               nb_epoch=100, step=100, k=5, early=100, verbose=True, swa_warmup=None, **kwargs):
         self.get_optimizer(**({} if opt_params is None else opt_params))
         global_step, best_n5, e = 0, 0.0, 0
-        print_loss = 0.0#
+        print_loss = 0.0  #
         for epoch_idx in range(nb_epoch):
             if epoch_idx == swa_warmup:
                 self.swa_init()
             for i, (train_x, train_y) in enumerate(train_loader, 1):
                 global_step += 1
-                loss = self.train_step(train_x.to(self.in_device, non_blocking=True), 
+                loss = self.train_step(train_x.to(self.in_device, non_blocking=True),
                                        train_y.to(self.out_device, non_blocking=True))
-                print_loss += loss#
+                print_loss += loss  #
                 if global_step % step == 0:
                     self.swa_step()
                     self.swap_swa_params()
@@ -202,7 +210,7 @@ class GPipeModel(object):
                     valid_loss /= len(valid_loader)
                     labels = np.concatenate(labels)
                     ##
-#                    labels = np.concatenate([self.predict_step(valid_x, k)[1] for valid_x in valid_loader])
+                    #                    labels = np.concatenate([self.predict_step(valid_x, k)[1] for valid_x in valid_loader])
                     targets = valid_loader.dataset.data_y
                     p5, n5 = get_p_5(labels, targets), get_n_5(labels, targets)
                     if n5 > best_n5:
@@ -215,7 +223,8 @@ class GPipeModel(object):
                     self.swap_swa_params()
                     if verbose:
                         log_msg = '%d %d train loss: %.7f valid loss: %.7f P@5: %.5f N@5: %.5f early stop: %d' % \
-                        (epoch_idx, i * train_loader.batch_size, print_loss / step, valid_loss, round(p5, 5), round(n5, 5), e)
+                                  (epoch_idx, i * train_loader.batch_size, print_loss / step, valid_loss, round(p5, 5),
+                                   round(n5, 5), e)
                         logger.info(log_msg)
                         print_loss = 0.0
 
@@ -228,7 +237,7 @@ class GPipeModel(object):
     def save_model(self, last_epoch):
         if not last_epoch: return
         for trial in range(5):
-            try:                
+            try:
                 torch.save(self.model.state_dict(), self.model_path)
                 break
             except:
@@ -267,10 +276,9 @@ class GPipeModel(object):
             swa_state = self.state['swa']
             for n, p in self.model.named_parameters():
                 gpu_id = p.get_device()
-                p.data, swa_state[n] = swa_state[n], p.data.cpu()#
+                p.data, swa_state[n] = swa_state[n], p.data.cpu()  #
                 p.data = p.data.cuda(gpu_id)
 
     def disable_swa(self):
         if 'swa' in self.state:
             del self.state['swa']
-   
