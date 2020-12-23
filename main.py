@@ -15,6 +15,7 @@ from deepxml.attentionxml import AttentionXML, CorNetAttentionXML
 from deepxml.meshprobenet import MeSHProbeNet, CorNetMeSHProbeNet
 from deepxml.bertxml import BertXML, CorNetBertXML
 from deepxml.xmlcnn import XMLCNN, CorNetXMLCNN
+
 import parameter
 
 model_dict = {
@@ -34,15 +35,21 @@ model_dict = {
 # @click.option('-m', '--model-cnf', type=click.Path(exists=True), help='Path of model configure yaml.')
 # @click.option('--mode', type=click.Choice(['train', 'eval']), default=None)
 def main(data_cnf, model_cnf, mode):
-    # 設定log檔案位置
-    logfile("./logs/logfile.log")
+    model_name = os.path.split(model_cnf)[1].split(".")[0]
     yaml = YAML(typ='safe')
     data_cnf, model_cnf = yaml.load(Path(data_cnf)), yaml.load(Path(model_cnf))
+
+    # 設定log檔案位置
+    logfile(
+        "./logs/logfile_{0}_cornet_{1}_cornet_dim_{2}.log".format(model_name, model_cnf['model']['n_cornet_blocks'],
+                                                                  model_cnf['model']['cornet_dim']))
+
     model, model_name, data_name = None, model_cnf['name'], data_cnf['name']
-    model_path = os.path.join(model_cnf['path'], F'{model_name}-{data_name}')
+    model_path = os.path.join(model_cnf['path'],
+                              F'{model_name}-{data_name}-{model_cnf["model"]["n_cornet_blocks"]}-{model_cnf["model"]["cornet_dim"]}')
     emb_init = get_word_emb(data_cnf['embedding']['emb_init'])
     logger.info(F'Model Name: {model_name}')
-
+    # summary(model_dict[model_name])
     if mode is None or mode == 'train':
         logger.info('Loading Training and Validation Set')
         train_x, train_labels = get_data(data_cnf['train']['texts'], data_cnf['train']['labels'])
@@ -65,6 +72,7 @@ def main(data_cnf, model_cnf, mode):
                                   model_cnf['train']['batch_size'], shuffle=True, num_workers=4)
         valid_loader = DataLoader(MultiLabelDataset(valid_x, valid_y, training=True),
                                   model_cnf['valid']['batch_size'], num_workers=4)
+
         if 'gpipe' not in model_cnf:
             model = Model(network=model_dict[model_name], labels_num=labels_num, model_path=model_path,
                           emb_init=emb_init,
@@ -72,7 +80,25 @@ def main(data_cnf, model_cnf, mode):
         else:
             model = GPipeModel(model_name, labels_num=labels_num, model_path=model_path, emb_init=emb_init,
                                **data_cnf['model'], **model_cnf['model'])
-        model.train(train_loader, valid_loader, **model_cnf['train'])
+        loss, p1, p5 = model.train(train_loader, valid_loader, **model_cnf['train'])
+        np.save(model_cnf['np_loss'] + "{0}_cornet_{1}_cornet_dim_{2}.npy".format(model_name,
+                                                                                  model_cnf['model'][
+                                                                                      'n_cornet_blocks'],
+                                                                                  model_cnf['model'][
+                                                                                      'cornet_dim']),
+                loss)
+        np.save(model_cnf['np_p1'] + "{0}_cornet_{1}_cornet_dim_{2}.npy".format(model_name,
+                                                                                model_cnf['model'][
+                                                                                    'n_cornet_blocks'],
+                                                                                model_cnf['model'][
+                                                                                    'cornet_dim']),
+                p1)
+        np.save(model_cnf['np_p5'] + "{0}_cornet_{1}_cornet_dim_{2}.npy".format(model_name,
+                                                                                model_cnf['model'][
+                                                                                    'n_cornet_blocks'],
+                                                                                model_cnf['model'][
+                                                                                    'cornet_dim']),
+                p5)
         logger.info('Finish Training')
 
     if mode is None or mode == 'eval':
@@ -101,10 +127,24 @@ def main(data_cnf, model_cnf, mode):
 
 if __name__ == '__main__':
     # print("torch cuda is available: ", torch.cuda.is_available())
-
+    PROJECT_CONF = "E:/PycharmProject/CorNet/configure/"
     param = parameter.Parameter()
     data_cnf = param.data_cnf
-    # model_cnf = pa.CorNet_model_cnf
-    model_cnf = param.model_cnf
+    model_cnf = PROJECT_CONF + "models/CorNetXMLCNN-EUR-Lex.yaml"
     mode = "train"
+    #main(data_cnf=data_cnf, model_cnf=model_cnf, mode=mode)
+
+    #model_cnf = PROJECT_CONF + "models/CorNetXMLCNN-EUR-Lex2.yaml"
+    #main(data_cnf=data_cnf, model_cnf=model_cnf, mode=mode)
+
+    #model_cnf = PROJECT_CONF + "models/CorNetXMLCNN-EUR-Lex3.yaml"
+    #main(data_cnf=data_cnf, model_cnf=model_cnf, mode=mode)
+
+    #model_cnf = PROJECT_CONF + "models/CorNetXMLCNN-EUR-Lex4.yaml"
+    #main(data_cnf=data_cnf, model_cnf=model_cnf, mode=mode)
+
+    model_cnf = PROJECT_CONF + "models/CorNetXMLCNN-EUR-Lex5.yaml"
+    main(data_cnf=data_cnf, model_cnf=model_cnf, mode=mode)
+
+    model_cnf = PROJECT_CONF + "models/CorNetXMLCNN-EUR-Lex6.yaml"
     main(data_cnf=data_cnf, model_cnf=model_cnf, mode=mode)

@@ -4,6 +4,8 @@ import joblib
 from collections import Counter
 from sklearn.preprocessing import MultiLabelBinarizer, normalize
 from sklearn.datasets import load_svmlight_file
+import warnings
+warnings.filterwarnings(action='ignore',category=UserWarning,module='gensim')
 from gensim.models import KeyedVectors
 from tqdm import tqdm
 from typing import Union, Iterable
@@ -11,10 +13,23 @@ from typing import Union, Iterable
 
 def build_vocab(texts: Iterable, w2v_model: Union[KeyedVectors, str], vocab_size=500000,
                 pad='<PAD>', unknown='<UNK>', sep='/SEP/', max_times=1, freq_times=1):
+    """
+    使用w2v_model建立dataset對應的vocab
+    :param texts:
+    :param w2v_model:
+    :param vocab_size:
+    :param pad:
+    :param unknown:
+    :param sep:
+    :param max_times:
+    :param freq_times:大於此值的字會加入倒vocab中(從texts中的字)
+    :return:
+    """
     if isinstance(w2v_model, str):
         w2v_model = KeyedVectors.load(w2v_model)
     emb_size = w2v_model.vector_size
     vocab, emb_init = [pad, unknown], [np.zeros(emb_size), np.random.uniform(-1.0, 1.0, emb_size)]
+    #計算所有字出現的次數
     counter = Counter(token for t in texts for token in set(t.split()))
     for word, freq in sorted(counter.items(), key=lambda x: (x[1], x[0] in w2v_model), reverse=True):
         if word in w2v_model or freq >= freq_times:
@@ -41,6 +56,16 @@ def get_data(text_file, label_file=None):
 
 
 def convert_to_binary(text_file, label_file=None, max_len=None, vocab=None, pad='<PAD>', unknown='<UNK>'):
+    """
+    將資料檔案轉換為numpy格式
+    :param text_file: 資料檔案
+    :param label_file: 資料標籤檔
+    :param max_len:
+    :param vocab:
+    :param pad:
+    :param unknown:
+    :return:
+    """
     with open(text_file, encoding="utf-8") as fp:
         texts = np.asarray([[vocab.get(word, vocab[unknown]) for word in line.split()]
                            for line in tqdm(fp, desc='Converting token to id', leave=False)])

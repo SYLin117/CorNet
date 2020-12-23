@@ -8,18 +8,43 @@ from tqdm import tqdm
 from logzero import logger
 from typing import Optional, Mapping
 
-from deepxml.evaluation import get_p_5, get_n_5
+from deepxml.evaluation import get_p_5, get_n_5, get_p_1, get_n_1
 from deepxml.optimizers import DenseSparseAdam
 from deepxml.gpipe_modules import gpipe_encoder, gpipe_decoder
 
 from torchgpipe import GPipe
+from torchsummary import summary
 
 
 class Model(object):
 
     def __init__(self, network, model_path, gradient_clip_value=5.0, device_ids=None, **kwargs):
+        """
+
+        :param network: 網路model
+        :param model_path: train好的儲存位置
+        :param gradient_clip_value:
+        :param device_ids:
+        :param kwargs:
+        """
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = nn.DataParallel(network(**kwargs).to(self.device), device_ids=device_ids)
+        model = network(**kwargs).to(self.device)
+
+        self.model = nn.DataParallel(model, device_ids=device_ids)
+        # 顯示model架構用
+        # model: XMLCNN(
+        #     (emb): Embedding(166402, 300, padding_idx=0, sparse=True)
+        # (conv1): Conv2d(1, 128, kernel_size=(2, 300), stride=(1, 1), padding=(1, 0))
+        # (conv2): Conv2d(1, 128, kernel_size=(4, 300), stride=(1, 1), padding=(3, 0))
+        # (conv3): Conv2d(1, 128, kernel_size=(8, 300), stride=(1, 1), padding=(7, 0))
+        # (pool): AdaptiveMaxPool1d(output_size=8)
+        # (bottleneck): Linear(in_features=3072, out_features=512, bias=True)
+        # (dropout): Dropout(p=0.5, inplace=False)
+        # (fc1): Linear(in_features=512, out_features=3801, bias=True)
+        # )
+        # print("model:", model)
+        # summary(model, input_size=(1, 40, 500))
+
         self.loss_fn = nn.BCEWithLogitsLoss()
         self.model_path, self.state = model_path, {}
         os.makedirs(os.path.split(self.model_path)[0], exist_ok=True)
@@ -53,13 +78,20 @@ class Model(object):
         self.get_optimizer(**({} if opt_params is None else opt_params))
         global_step, best_n5, e = 0, 0.0, 0
         print_loss = 0.0  #
+        epoch_loss = np.zeros((1, nb_epoch), dtype=np.float)
+        np_p1 = np.zeros((1, nb_epoch), dtype=np.float)
+        np_p5 = np.zeros((1, nb_epoch), dtype=np.float)
         for epoch_idx in range(nb_epoch):
+            print_epoch_loss = 0.0
             if epoch_idx == swa_warmup:
                 self.swa_init()
+            p1_tmp = 0.0
+            p5_tmp = 0.0
             for i, (train_x, train_y) in enumerate(train_loader, 1):
                 global_step += 1
                 loss = self.train_step(train_x, train_y.cuda())
-                print_loss += loss  #
+                print_loss += loss
+                print_epoch_loss += loss
                 if global_step % step == 0:
                     self.swa_step()
                     self.swap_swa_params()
@@ -81,6 +113,9 @@ class Model(object):
                     #                    labels = np.concatenate([self.predict_step(valid_x, k)[1] for valid_x in valid_loader])
                     targets = valid_loader.dataset.data_y
                     p5, n5 = get_p_5(labels, targets), get_n_5(labels, targets)
+                    p1, n1 = get_p_1(labels, targets), get_n_1(labels, targets)
+                    p5_tmp = p5
+                    p1_tmp = p1
                     if n5 > best_n5:
                         self.save_model(True)  # epoch_idx > 1 * swa_warmup)
                         best_n5, e = n5, 0
@@ -90,11 +125,17 @@ class Model(object):
                             return
                     self.swap_swa_params()
                     if verbose:
-                        log_msg = '%d %d train loss: %.7f valid loss: %.7f P@5: %.5f N@5: %.5f early stop: %d' % \
+                        log_msg = '%d %d train loss: %.7f valid loss: %.7f P@5: %.5f N@5: %.5f P@1: %.5f N@1: %.5f early stop: %d' % \
                                   (epoch_idx, i * train_loader.batch_size, print_loss / step, valid_loss, round(p5, 5),
-                                   round(n5, 5), e)
+                                   round(n5, 5), round(p1, 5), round(n1, 5), e)
                         logger.info(log_msg)
                         print_loss = 0.0
+
+            epoch_loss[0, epoch_idx] = print_epoch_loss / 15249
+            print_epoch_loss = 0.0
+            np_p1[0, epoch_idx] = p1_tmp
+            np_p5[0, epoch_idx] = p5_tmp
+        return epoch_loss, np_p1, np_p5
 
     def predict(self, data_loader: DataLoader, k=100, desc='Predict', **kwargs):
         self.load_model()
