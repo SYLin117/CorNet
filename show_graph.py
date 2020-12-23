@@ -1,5 +1,23 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import decimal
+
+# create a new context for this task
+
+
+ctx = decimal.Context()
+
+# 20 digits should be enough for everyone :D
+
+
+ctx.prec = 10
+
+
+def float_to_str(f):
+    d1 = ctx.create_decimal(repr(f))
+
+    return format(d1, 'f')
+
 
 def cnn():
     modle_name = "XMLCNN"
@@ -24,7 +42,6 @@ def cnn():
     # ‘y’	黄色，yellow
     # ‘k’	黑色，black
     # ‘w’	白色，white
-
 
     # 字符	类型	字符	类型
     # '-'	实线	'--'	虚线
@@ -54,7 +71,9 @@ def cnn():
     plt.legend()
     plt.show()
 
+
 def cornet_cnn():
+    np.set_printoptions(suppress=True)
     modle_name = "CorNetXMLCNN"
     cornet_num = "8"
     cornet_dim = "1000"
@@ -97,21 +116,25 @@ def cornet_cnn():
     epochs = range(1, loss.shape[0] + 1)
     plt.plot(epochs, loss, label="loss")
     for i, j in zip(epochs, loss):
-        plt.annotate("{0}".format(5), xy=(i, j))
+        if i % 5 == 0:
+            plt.annotate("{0}".format(float_to_str(j)), xy=(i, j))
     plt.title(title)
     plt.legend()
     plt.show()
 
     plt.plot(epochs, p1, 'b', label="p1")
     for i, j in zip(epochs, p1):
-        plt.annotate("{0}".format(5), xy=(i, j))
+        if i % 5 == 0:
+            plt.annotate("{0}".format(round(j, 6)), xy=(i, j))
     plt.plot(epochs, p5, 'g', label="p5")
     for i, j in zip(epochs, p5):
-        plt.annotate("{0}".format(5), xy=(i, j))
+        if i % 5 == 0:
+            plt.annotate("{0}".format(j), xy=(i, j))
     plt.title(title)
     plt.legend()
     plt.show()
 
+
 if __name__ == '__main__':
-    #cnn()
+    # cnn()
     cornet_cnn()
