@@ -43,9 +43,9 @@ def main(data_cnf, model_cnf, mode):
         logger.info(F'Size of Training Set: {len(train_x)}')
         logger.info(F'Size of Validation Set: {len(valid_x)}')
 
-        train_x.reshape((15249, 1, 500, 1))
-        valid_x.reshape((200, 1, 500, 1))
-        train_y = LabelBinarizer(sparse_output=True).fit(labels).transform(Y)
+        #train_x.reshape((15249, 1, 500, 1))
+        #valid_x.reshape((200, 1, 500, 1))
+        #train_y = LabelBinarizer(sparse_output=True).fit(labels).transform(Y)
 
     vocab_size = emb_init.shape[0]
     emb_size = emb_init.shape[1]
