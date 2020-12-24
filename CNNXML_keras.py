@@ -1,4 +1,4 @@
-import keras as K
+import keras
 from keras.models import Sequential
 from keras.layers import Flatten, Dense, Embedding, Conv1D, Conv2D, Dropout, GlobalMaxPooling1D, Input, Convolution2D, \
     BatchNormalization, Activation, MaxPooling2D
@@ -33,7 +33,7 @@ def nn_batch_generator(X_data, y_data, batch_size):
 
 
 def adapmaxpooling(x, outsize):
-    x_shape = K.int_shape(x)
+    x_shape = keras.backend.int_shape(x)
     batchsize1, dim1, dim2, channels1 = x_shape
     stride = np.floor(dim1 / outsize).astype(np.int32)
     kernels = dim1 - (outsize - 1) * stride
@@ -43,11 +43,11 @@ def adapmaxpooling(x, outsize):
 
 
 def squeeze_function(x, dim):
-    return K.backend.squeeze(x, axis=dim)
+    return keras.backend.squeeze(x, axis=dim)
 
 
 def unsqeeze_function(x, dim):
-    return K.backend.un
+    return keras.backend.un
 
 
 def main(data_cnf, model_cnf, mode):
@@ -96,7 +96,7 @@ def main(data_cnf, model_cnf, mode):
     glorot_uniform_initializer = tf.compat.v1.keras.initializers.glorot_uniform()
     glorot_normal_initializer = tf.compat.v1.keras.initializers.glorot_normal()
 
-    train_x = K.constant(train_x)
+    train_x = tf.constant(train_x)
     emb_data = Embedding(vocab_size,
                          emb_size,
                          weights=[emb_init],
@@ -105,13 +105,16 @@ def main(data_cnf, model_cnf, mode):
     emb_data = tf.expand_dims(emb_data, axis=1)
     conv1_output = Conv2D(output_channel, kernel_size=(2, emb_size), padding='same',
                           kernel_initializer=glorot_uniform_initializer)(emb_data)
+    conv1_output = squeeze_function(conv1_output, 1)
     conv2_output = Conv2D(output_channel, kernel_size=(4, emb_size), padding='same',
                           kernel_initializer=glorot_uniform_initializer)(emb_data)
+    conv2_output = squeeze_function(conv2_output, 1)
     conv3_output = Conv2D(output_channel, kernel_size=(8, emb_size), padding='same',
                           kernel_initializer=glorot_uniform_initializer)(emb_data)
-    conv1_maxpool = GlobalMaxPooling1D(data_format=str(dynamic_pool_length))(conv1_output)
-    conv2_maxpool = GlobalMaxPooling1D(data_format=str(dynamic_pool_length))(conv2_output)
-    conv3_maxpool = GlobalMaxPooling1D(data_format=str(dynamic_pool_length))(conv3_output)
+    conv3_output = squeeze_function(conv3_output, 1)
+    # conv1_maxpool = GlobalMaxPooling1D(data_format=str(dynamic_pool_length))(conv1_output)
+    # conv2_maxpool = GlobalMaxPooling1D(data_format=str(dynamic_pool_length))(conv2_output)
+    # conv3_maxpool = GlobalMaxPooling1D(data_format=str(dynamic_pool_length))(conv3_output)
     pool1 = adapmaxpooling(conv1_output, 8)
     pool2 = adapmaxpooling(conv2_output, 8)
     pool3 = adapmaxpooling(conv3_output, 8)
