@@ -1,7 +1,7 @@
 import keras
-from keras.models import Sequential
+from keras.models import Sequential, Model
 from keras.layers import Flatten, Dense, Embedding, Conv1D, Conv2D, Dropout, GlobalMaxPooling1D, Input, Convolution2D, \
-    BatchNormalization, Activation, MaxPooling2D
+    BatchNormalization, Activation, MaxPooling2D, GlobalMaxPool2D, Lambda, concatenate
 import tensorflow as tf
 
 from deepxml.dataset import MultiLabelDataset
@@ -46,8 +46,8 @@ def squeeze_function(x, dim):
     return keras.backend.squeeze(x, axis=dim)
 
 
-def unsqeeze_function(x, dim):
-    return keras.backend.un
+def reshape_tensor(x, shape):
+    return keras.backend.reshape(x, shape)
 
 
 def main(data_cnf, model_cnf, mode):
@@ -86,6 +86,7 @@ def main(data_cnf, model_cnf, mode):
     emb_size = emb_init.shape[1]
 
     # 可調參數
+    data_num = len(train_x)
     ks = 3
     output_channel = 128
     dynamic_pool_length = 8
@@ -96,28 +97,34 @@ def main(data_cnf, model_cnf, mode):
     glorot_uniform_initializer = tf.compat.v1.keras.initializers.glorot_uniform()
     glorot_normal_initializer = tf.compat.v1.keras.initializers.glorot_normal()
 
-    train_x = tf.constant(train_x)
+    input_tensor = keras.Input(batch_shape=(batch_size, 500), name='text')
     emb_data = Embedding(vocab_size,
                          emb_size,
                          weights=[emb_init],
-                         input_length=500,
-                         trainable=False)(train_x)
-    emb_data = tf.expand_dims(emb_data, axis=1)
-    conv1_output = Conv2D(output_channel, kernel_size=(2, emb_size), padding='same',
-                          kernel_initializer=glorot_uniform_initializer)(emb_data)
-    conv1_output = squeeze_function(conv1_output, 1)
-    conv2_output = Conv2D(output_channel, kernel_size=(4, emb_size), padding='same',
-                          kernel_initializer=glorot_uniform_initializer)(emb_data)
-    conv2_output = squeeze_function(conv2_output, 1)
-    conv3_output = Conv2D(output_channel, kernel_size=(8, emb_size), padding='same',
-                          kernel_initializer=glorot_uniform_initializer)(emb_data)
-    conv3_output = squeeze_function(conv3_output, 1)
-    # conv1_maxpool = GlobalMaxPooling1D(data_format=str(dynamic_pool_length))(conv1_output)
-    # conv2_maxpool = GlobalMaxPooling1D(data_format=str(dynamic_pool_length))(conv2_output)
-    # conv3_maxpool = GlobalMaxPooling1D(data_format=str(dynamic_pool_length))(conv3_output)
-    pool1 = adapmaxpooling(conv1_output, 8)
-    pool2 = adapmaxpooling(conv2_output, 8)
-    pool3 = adapmaxpooling(conv3_output, 8)
+                         trainable=False)(input_tensor)
+    # emd_out_4d = keras.layers.core.RepeatVector(1)(emb_data)
+    # unsqueeze_emb_data = tf.keras.layers.Reshape((1, 500, 300), input_shape=(500, 300))(emb_data)
+    # emb_data = tf.expand_dims(emb_data, axis=1)
+    emb_data = Lambda(reshape_tensor, arguments={'shape': (batch_size, 1, 500, 300)})(emb_data)
+
+    conv1_output = Convolution2D(output_channel, kernel_size=(2, emb_size), padding='same',
+                                 kernel_initializer=glorot_uniform_initializer, activation='relu')(emb_data)
+    conv1_output = Lambda(reshape_tensor, arguments={'shape': (batch_size, 500, output_channel)})(conv1_output)
+
+    conv2_output = Convolution2D(output_channel, kernel_size=(4, emb_size), padding='same',
+                                 kernel_initializer=glorot_uniform_initializer, activation='relu')(emb_data)
+    conv2_output = Lambda(reshape_tensor, arguments={'shape': (batch_size, 500, output_channel)})(conv2_output)
+
+    conv3_output = Convolution2D(output_channel, kernel_size=(8, emb_size), padding='same',
+                                 kernel_initializer=glorot_uniform_initializer, activation='relu')(emb_data)
+    conv3_output = Lambda(reshape_tensor, arguments={'shape': (batch_size, 500, output_channel)})(conv3_output)
+
+    pool1 = GlobalMaxPooling1D()(conv1_output)
+    pool2 = GlobalMaxPooling1D()(conv2_output)
+    pool3 = GlobalMaxPooling1D()(conv3_output)
+    output = concatenate([pool1, pool2, pool3], axis=-1)
+    output = Dense(3084, activation='softmax')(output)
+
     # model.add(Dense(num_bottleneck_hidden, input_shape=(ks * output_channel * dynamic_pool_length,), activation='relu',
     #                initializer=glorot_uniform_initializer))
     # model.add(Dropout(drop_out))
@@ -125,7 +132,9 @@ def main(data_cnf, model_cnf, mode):
     #                initializer=glorot_uniform_initializer))
     # model.compile(loss='binary_crossentropy', optimizer='adam', metrics=[tf.keras.metrics.Precision(top_k=5)])
     # XMLCNN = Model
-    print(model.summary())
+    model = Model(input_tensor, output)
+    model.summary()
+    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=[tf.keras.metrics.Precision(top_k=5)])
     # history = model.fit_generator(train_x, valid_x, epochs=epochs, batch_size=batch_size,
     #                              validation_data=(train_y, valid_y.toArray()))
 
