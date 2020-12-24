@@ -8,9 +8,7 @@ import decimal
 ctx = decimal.Context()
 
 # 20 digits should be enough for everyone :D
-
-
-ctx.prec = 10
+ctx.prec = 6
 
 
 def float_to_str(f):
@@ -58,15 +56,24 @@ def cnn():
     # 'D'	实心菱形点	'd'	瘦菱形点
     # '_'	横线点
 
-    title = "{0}_cornet_{1}_bottleneck_dim_{2}".format(modle_name, cornet_num, bottleneck_dim)
+    title = "{0}_cornet_{1}".format(modle_name, cornet_num)
     epochs = range(1, loss.shape[0] + 1)
     plt.plot(epochs, loss, label="loss")
+    for i, j in zip(epochs, loss):
+        if i % 5 == 0:
+            plt.annotate("{0}".format(float_to_str(j)), xy=(i, j))
     plt.title(title)
     plt.legend()
     plt.show()
 
     plt.plot(epochs, p1, 'b', label="p1")
+    for i, j in zip(epochs, p1):
+        if i % 5 == 0:
+            plt.annotate("{0}".format(float_to_str(j)), xy=(i, j))
     plt.plot(epochs, p5, 'g', label="p5")
+    for i, j in zip(epochs, p5):
+        if i % 5 == 0:
+            plt.annotate("{0}".format(float_to_str(j)), xy=(i, j))
     plt.title(title)
     plt.legend()
     plt.show()
@@ -74,7 +81,7 @@ def cnn():
 
 def cornet_cnn():
     np.set_printoptions(suppress=True)
-    modle_name = "CorNetXMLCNN"
+    modle_name = "XMLCNN"
     cornet_num = "8"
     cornet_dim = "1000"
     bottleneck_dim = "512"
@@ -136,5 +143,5 @@ def cornet_cnn():
 
 
 if __name__ == '__main__':
-    # cnn()
-    cornet_cnn()
+    cnn()
+    #cornet_cnn()

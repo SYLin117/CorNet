@@ -103,6 +103,7 @@ def main(data_cnf, model_cnf, mode):
 
     if mode is None or mode == 'eval':
         logger.info('Loading Test Set')
+        logger.info('model path: ', model_path)
         mlb = get_mlb(data_cnf['labels_binarizer'])
         labels_num = len(mlb.classes_)
         test_x, _ = get_data(data_cnf['test']['texts'], None)
@@ -132,19 +133,19 @@ if __name__ == '__main__':
     data_cnf = param.data_cnf
     model_cnf = PROJECT_CONF + "models/CorNetXMLCNN-EUR-Lex.yaml"
     mode = "train"
-    #main(data_cnf=data_cnf, model_cnf=model_cnf, mode=mode)
-
-    #model_cnf = PROJECT_CONF + "models/CorNetXMLCNN-EUR-Lex2.yaml"
-    #main(data_cnf=data_cnf, model_cnf=model_cnf, mode=mode)
-
-    #model_cnf = PROJECT_CONF + "models/CorNetXMLCNN-EUR-Lex3.yaml"
-    #main(data_cnf=data_cnf, model_cnf=model_cnf, mode=mode)
-
-    #model_cnf = PROJECT_CONF + "models/CorNetXMLCNN-EUR-Lex4.yaml"
-    #main(data_cnf=data_cnf, model_cnf=model_cnf, mode=mode)
-
-    model_cnf = PROJECT_CONF + "models/CorNetXMLCNN-EUR-Lex5.yaml"
     main(data_cnf=data_cnf, model_cnf=model_cnf, mode=mode)
 
-    model_cnf = PROJECT_CONF + "models/CorNetXMLCNN-EUR-Lex6.yaml"
-    main(data_cnf=data_cnf, model_cnf=model_cnf, mode=mode)
+    # model_cnf = PROJECT_CONF + "models/CorNetXMLCNN-EUR-Lex2.yaml"
+    # main(data_cnf=data_cnf, model_cnf=model_cnf, mode=mode)
+
+    # model_cnf = PROJECT_CONF + "models/CorNetXMLCNN-EUR-Lex3.yaml"
+    # main(data_cnf=data_cnf, model_cnf=model_cnf, mode=mode)
+
+    # model_cnf = PROJECT_CONF + "models/CorNetXMLCNN-EUR-Lex4.yaml"
+    # main(data_cnf=data_cnf, model_cnf=model_cnf, mode=mode)
+
+    # model_cnf = PROJECT_CONF + "models/CorNetXMLCNN-EUR-Lex5.yaml"
+    # main(data_cnf=data_cnf, model_cnf=model_cnf, mode=mode)
+
+    # model_cnf = PROJECT_CONF + "models/CorNetXMLCNN-EUR-Lex6.yaml"
+    # main(data_cnf=data_cnf, model_cnf=model_cnf, mode=mode)
