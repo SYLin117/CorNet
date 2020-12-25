@@ -14,20 +14,33 @@ from pathlib import Path
 from ruamel.yaml import YAML
 from sklearn.model_selection import train_test_split
 
-import parameter
+import math
 
 
-def nn_batch_generator(X_data, y_data, batch_size):
+def batch_generator(X_data, y_data, batch_size):
+    """
+    为什么我们需要steps_per_epoch？
+    请记住，Keras数据生成器意味着无限循环，它永远不会返回或退出。
+    :param X_data:
+    :param y_data:
+    :param batch_size:
+    :return:
+    """
+    # 總資料比數
     samples_per_epoch = X_data.shape[0]
+    # 在batch_size的大小下有多少的batch
     number_of_batches = samples_per_epoch / batch_size
     counter = 0
     index = np.arange(np.shape(y_data)[0])
     while 1:
         index_batch = index[batch_size * counter:batch_size * (counter + 1)]
-        X_batch = X_data[index_batch, :].todense()
-        y_batch = y_data[index_batch]
+        X_batch = X_data[index_batch, :]
+        y_batch = y_data[index_batch].todense()
+        if (len(index_batch) < 40):
+            counter = 0
+            continue
         counter += 1
-        yield np.array(X_batch), y_batch
+        yield X_batch, np.array(y_batch)
         if (counter > number_of_batches):
             counter = 0
 
@@ -92,7 +105,7 @@ def main(data_cnf, model_cnf, mode):
     dynamic_pool_length = 8
     num_bottleneck_hidden = 512
     drop_out = 0.5
-    epochs = 30
+    nb_epochs = 30
     batch_size = 40
     glorot_uniform_initializer = tf.compat.v1.keras.initializers.glorot_uniform()
     glorot_normal_initializer = tf.compat.v1.keras.initializers.glorot_normal()
@@ -123,7 +136,7 @@ def main(data_cnf, model_cnf, mode):
     pool2 = GlobalMaxPooling1D()(conv2_output)
     pool3 = GlobalMaxPooling1D()(conv3_output)
     output = concatenate([pool1, pool2, pool3], axis=-1)
-    output = Dense(3084, activation='softmax')(output)
+    output = Dense(3801, activation='softmax')(output)
 
     # model.add(Dense(num_bottleneck_hidden, input_shape=(ks * output_channel * dynamic_pool_length,), activation='relu',
     #                initializer=glorot_uniform_initializer))
@@ -135,8 +148,13 @@ def main(data_cnf, model_cnf, mode):
     model = Model(input_tensor, output)
     model.summary()
     model.compile(optimizer='adam', loss='binary_crossentropy', metrics=[tf.keras.metrics.Precision(top_k=5)])
-    # history = model.fit_generator(train_x, valid_x, epochs=epochs, batch_size=batch_size,
-    #                              validation_data=(train_y, valid_y.toArray()))
+    # history = model.fit_generator(train_x, train_y.toArray(), epochs=epochs, batch_size=batch_size,
+    #                               validation_data=(valid_x, valid_y.toArray()))
+    model.fit_generator(steps_per_epoch=data_num / batch_size,
+                        generator=batch_generator(train_x, train_y, batch_size),
+                        nb_epoch=nb_epochs)
+
+    model.save('keras_xmlcnn.h5')
 
 
 if __name__ == '__main__':
