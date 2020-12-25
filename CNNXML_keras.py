@@ -70,7 +70,8 @@ def main(data_cnf, model_cnf, mode):
     yaml = YAML(typ='safe')
     data_cnf, model_cnf = yaml.load(Path(data_cnf)), yaml.load(Path(model_cnf))
     model, model_name, data_name = None, model_cnf['name'], data_cnf['name']
-    model_path = os.path.join(model_cnf['path'], F'{model_name}-{data_name}')
+    # model_path = model_cnf['path'] + "/" + model_cnf['name'] + '.h'
+    model_path = r'E:\\PycharmProject\\CorNet\\keras_xmlcnn.h5'
     emb_init = get_word_emb(data_cnf['embedding']['emb_init'])
     logger.info(F'Model Name: {model_name}')
 
@@ -95,66 +96,96 @@ def main(data_cnf, model_cnf, mode):
         # valid_x.reshape((200, 1, 500, 1))
         # train_y = LabelBinarizer(sparse_output=True).fit(labels).transform(Y)
 
-    vocab_size = emb_init.shape[0]
-    emb_size = emb_init.shape[1]
+        vocab_size = emb_init.shape[0]
+        emb_size = emb_init.shape[1]
 
-    # 可調參數
-    data_num = len(train_x)
-    ks = 3
-    output_channel = 128
-    dynamic_pool_length = 8
-    num_bottleneck_hidden = 512
-    drop_out = 0.5
-    nb_epochs = 30
-    batch_size = 40
-    glorot_uniform_initializer = tf.compat.v1.keras.initializers.glorot_uniform()
-    glorot_normal_initializer = tf.compat.v1.keras.initializers.glorot_normal()
+        # 可調參數
+        data_num = len(train_x)
+        ks = 3
+        output_channel = 128
+        dynamic_pool_length = model_cnf['model']['dynamic_pool_length']
+        num_bottleneck_hidden = model_cnf['model']['bottleneck_dim']
+        drop_out = model_cnf['model']['dropout']
+        nb_epochs = model_cnf['train']['nb_epoch']
+        batch_size = model_cnf['train']['batch_size']
+        glorot_uniform_initializer = tf.compat.v1.keras.initializers.glorot_uniform()
+        glorot_normal_initializer = tf.compat.v1.keras.initializers.glorot_normal()
 
-    input_tensor = keras.Input(batch_shape=(batch_size, 500), name='text')
-    emb_data = Embedding(vocab_size,
-                         emb_size,
-                         weights=[emb_init],
-                         trainable=False)(input_tensor)
-    # emd_out_4d = keras.layers.core.RepeatVector(1)(emb_data)
-    # unsqueeze_emb_data = tf.keras.layers.Reshape((1, 500, 300), input_shape=(500, 300))(emb_data)
-    # emb_data = tf.expand_dims(emb_data, axis=1)
-    emb_data = Lambda(reshape_tensor, arguments={'shape': (batch_size, 1, 500, 300)})(emb_data)
+        input_tensor = keras.Input(batch_shape=(batch_size, 500), name='text')
+        emb_data = Embedding(vocab_size,
+                             emb_size,
+                             weights=[emb_init],
+                             trainable=False)(input_tensor)
+        # emd_out_4d = keras.layers.core.RepeatVector(1)(emb_data)
+        # unsqueeze_emb_data = tf.keras.layers.Reshape((1, 500, 300), input_shape=(500, 300))(emb_data)
+        # emb_data = tf.expand_dims(emb_data, axis=1)
+        emb_data = Lambda(reshape_tensor, arguments={'shape': (batch_size, 1, 500, 300)})(emb_data)
 
-    conv1_output = Convolution2D(output_channel, kernel_size=(2, emb_size), padding='same',
-                                 kernel_initializer=glorot_uniform_initializer, activation='relu')(emb_data)
-    conv1_output = Lambda(reshape_tensor, arguments={'shape': (batch_size, 500, output_channel)})(conv1_output)
+        conv1_output = Convolution2D(output_channel, kernel_size=(2, emb_size), padding='same',
+                                     kernel_initializer=keras.initializers.glorot_uniform(seed=None),
+                                     activation='relu')(emb_data)
+        conv1_output = Lambda(reshape_tensor, arguments={'shape': (batch_size, 500, output_channel)})(conv1_output)
 
-    conv2_output = Convolution2D(output_channel, kernel_size=(4, emb_size), padding='same',
-                                 kernel_initializer=glorot_uniform_initializer, activation='relu')(emb_data)
-    conv2_output = Lambda(reshape_tensor, arguments={'shape': (batch_size, 500, output_channel)})(conv2_output)
+        conv2_output = Convolution2D(output_channel, kernel_size=(4, emb_size), padding='same',
+                                     kernel_initializer=keras.initializers.glorot_uniform(seed=None),
+                                     activation='relu')(emb_data)
+        conv2_output = Lambda(reshape_tensor, arguments={'shape': (batch_size, 500, output_channel)})(conv2_output)
 
-    conv3_output = Convolution2D(output_channel, kernel_size=(8, emb_size), padding='same',
-                                 kernel_initializer=glorot_uniform_initializer, activation='relu')(emb_data)
-    conv3_output = Lambda(reshape_tensor, arguments={'shape': (batch_size, 500, output_channel)})(conv3_output)
+        conv3_output = Convolution2D(output_channel, kernel_size=(8, emb_size), padding='same',
+                                     kernel_initializer=keras.initializers.glorot_uniform(seed=None),
+                                     activation='relu')(emb_data)
+        conv3_output = Lambda(reshape_tensor, arguments={'shape': (batch_size, 500, output_channel)})(conv3_output)
 
-    pool1 = GlobalMaxPooling1D()(conv1_output)
-    pool2 = GlobalMaxPooling1D()(conv2_output)
-    pool3 = GlobalMaxPooling1D()(conv3_output)
-    output = concatenate([pool1, pool2, pool3], axis=-1)
-    output = Dense(3801, activation='softmax')(output)
+        pool1 = GlobalMaxPooling1D()(conv1_output)
+        pool2 = GlobalMaxPooling1D()(conv2_output)
+        pool3 = GlobalMaxPooling1D()(conv3_output)
+        output = concatenate([pool1, pool2, pool3], axis=-1)
+        output = Dense(num_bottleneck_hidden, activation='relu')(output)
+        output = Dense(3801, activation='softmax')(output)
 
-    # model.add(Dense(num_bottleneck_hidden, input_shape=(ks * output_channel * dynamic_pool_length,), activation='relu',
-    #                initializer=glorot_uniform_initializer))
-    # model.add(Dropout(drop_out))
-    # model.add(Dense(labels_num, input_shape=(num_bottleneck_hidden,), activation='relu',
-    #                initializer=glorot_uniform_initializer))
-    # model.compile(loss='binary_crossentropy', optimizer='adam', metrics=[tf.keras.metrics.Precision(top_k=5)])
-    # XMLCNN = Model
-    model = Model(input_tensor, output)
-    model.summary()
-    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=[tf.keras.metrics.Precision(top_k=5)])
-    # history = model.fit_generator(train_x, train_y.toArray(), epochs=epochs, batch_size=batch_size,
-    #                               validation_data=(valid_x, valid_y.toArray()))
-    model.fit_generator(steps_per_epoch=data_num / batch_size,
-                        generator=batch_generator(train_x, train_y, batch_size),
-                        nb_epoch=nb_epochs)
+        # model.add(Dense(num_bottleneck_hidden, input_shape=(ks * output_channel * dynamic_pool_length,), activation='relu',
+        #                initializer=glorot_uniform_initializer))
+        # model.add(Dropout(drop_out))
+        # model.add(Dense(labels_num, input_shape=(num_bottleneck_hidden,), activation='relu',
+        #                initializer=glorot_uniform_initializer))
+        # model.compile(loss='binary_crossentropy', optimizer='adam', metrics=[tf.keras.metrics.Precision(top_k=5)])
+        # XMLCNN = Model
+        model = Model(input_tensor, output)
+        model.summary()
+        model.compile(optimizer='adam', loss='binary_crossentropy', metrics=[tf.keras.metrics.Precision(top_k=5)])
+        # history = model.fit_generator(train_x, train_y.toArray(), epochs=epochs, batch_size=batch_size,
+        #                               validation_data=(valid_x, valid_y.toArray()))
+        model.fit_generator(steps_per_epoch=data_num / batch_size,
+                            generator=batch_generator(train_x, train_y, batch_size),
+                            nb_epoch=nb_epochs)
 
-    model.save('keras_xmlcnn.h5')
+        model.save(model_path)
+    if mode is None or mode == 'eval':
+        # logger.info('Loading Training and Validation Set')
+        # train_x, train_labels = get_data(data_cnf['train']['texts'], data_cnf['train']['labels'])
+        # if 'size' in data_cnf['valid']:
+        #     random_state = data_cnf['valid'].get('random_state', 1240)
+        #     train_x, valid_x, train_labels, valid_labels = train_test_split(train_x, train_labels,
+        #                                                                     test_size=data_cnf['valid']['size'],
+        #                                                                     random_state=random_state)
+        # else:
+        #     valid_x, valid_labels = get_data(data_cnf['valid']['texts'], data_cnf['valid']['labels'])
+        # mlb = get_mlb(data_cnf['labels_binarizer'], np.hstack((train_labels, valid_labels)))
+        # train_y, valid_y = mlb.transform(train_labels), mlb.transform(valid_labels)
+        # labels_num = len(mlb.classes_)
+        # logger.info(F'Number of Labels: {labels_num}')
+        # logger.info(F'Size of Training Set: {len(train_x)}')
+        # logger.info(F'Size of Validation Set: {len(valid_x)}')
+
+        logger.info('Loading Test Set')
+        logger.info('model path: ', model_path)
+        mlb = get_mlb(data_cnf['labels_binarizer'])
+        labels_num = len(mlb.classes_)
+        test_x, _ = get_data(data_cnf['test']['texts'], None)
+        logger.info(F'Size of Test Set: {len(test_x)}')
+
+        model = keras.models.load_model(model_path)
+        model.predict(test_x)
 
 
 if __name__ == '__main__':
