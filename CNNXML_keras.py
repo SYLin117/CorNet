@@ -6,7 +6,7 @@ import keras
 from keras import backend as K
 from keras.models import Sequential, Model
 from keras.layers import Dense, Embedding, Dropout, GlobalMaxPooling1D, Input, Convolution1D, Convolution2D, \
-    MaxPooling2D, concatenate
+    MaxPooling2D, concatenate, Activation, Add, Lambda
 import tensorflow as tf
 
 from deepxml.dataset import MultiLabelDataset
@@ -23,6 +23,8 @@ from sklearn.preprocessing import MultiLabelBinarizer
 
 from deepxml.evaluation import get_p_1, get_p_3, get_p_5, get_n_1, get_n_3, get_n_5, get_inv_propensity
 from deepxml.evaluation import get_psp_1, get_psp_3, get_psp_5, get_psndcg_1, get_psndcg_3, get_psndcg_5
+
+from keras.callbacks import CSVLogger
 
 
 def p5(y_true, y_pred):
@@ -116,6 +118,10 @@ def reshape_tensor(x, shape):
     return keras.backend.reshape(x, shape)
 
 
+def add(input1, input2):
+    keras.layers.add([input1, input2])
+
+
 def main(data_cnf, model_cnf, mode):
     model_name = os.path.split(model_cnf)[1].split(".")[0]
     # 設定log檔案位置
@@ -124,9 +130,12 @@ def main(data_cnf, model_cnf, mode):
     data_cnf, model_cnf = yaml.load(Path(data_cnf)), yaml.load(Path(model_cnf))
     model, model_name, data_name = None, model_cnf['name'], data_cnf['name']
     # model_path = model_cnf['path'] + "/" + model_cnf['name'] + '.h'
-    model_path = r'E:\\PycharmProject\\CorNet\\keras_xmlcnn.h5'
+    model_path = r'E:\\PycharmProject\\CorNet\\' + model_name + '.h5'
     emb_init = get_word_emb(data_cnf['embedding']['emb_init'])
     logger.info(F'Model Name: {model_name}')
+
+    # keras log file
+    csv_logger = CSVLogger('./logs/' + model_name + '_log.csv', append=True, separator=',')
 
     if mode is None or mode == 'train':
         logger.info('Loading Training and Validation Set')
@@ -145,10 +154,6 @@ def main(data_cnf, model_cnf, mode):
         logger.info(F'Size of Training Set: {len(train_x)}')
         logger.info(F'Size of Validation Set: {len(valid_x)}')
 
-        # train_x.reshape((15249, 1, 500, 1))
-        # valid_x.reshape((200, 1, 500, 1))
-        # train_y = LabelBinarizer(sparse_output=True).fit(labels).transform(Y)
-
         vocab_size = emb_init.shape[0]
         emb_size = emb_init.shape[1]
 
@@ -159,8 +164,11 @@ def main(data_cnf, model_cnf, mode):
         dynamic_pool_length = model_cnf['model']['dynamic_pool_length']
         num_bottleneck_hidden = model_cnf['model']['bottleneck_dim']
         drop_out = model_cnf['model']['dropout']
+        cornet_dim = model_cnf['model']['cornet_dim']
+        nb_cornet_block = model_cnf['model'].get('nb_cornet_block', 0)
         nb_epochs = model_cnf['train']['nb_epoch']
         batch_size = model_cnf['train']['batch_size']
+
         max_length = 500
 
         input_tensor = Input(batch_shape=(batch_size, max_length), name='input')
@@ -204,20 +212,40 @@ def main(data_cnf, model_cnf, mode):
         output = concatenate([pool1, pool2, pool3], axis=-1)
         # output = Dense(num_bottleneck_hidden, activation='relu',name='bottleneck')(output)
         output = Dropout(drop_out, name='dropout1')(output)
-        output = Dense(3801, activation='softmax', name='dense_final',
+        output = Dense(labels_num, activation='softmax', name='dense_final',
                        kernel_initializer=keras.initializers.glorot_uniform(seed=None))(output)
+
+        if nb_cornet_block > 0:
+            for i in range(nb_cornet_block):
+                x_shortcut = output
+                x = keras.layers.Activation('sigmoid', name='cornet_sigmoid_{0}'.format(i + 1))(output)
+                x = Dense(cornet_dim, kernel_initializer='glorot_uniform', name='cornet_1st_dense_{0}'.format(i + 1))(x)
+
+                # x = Dense(cornet_dim, kernel_initializer=keras.initializers.glorot_uniform(seed=None),
+                #           activation='sigmoid', name='cornet_1st_dense_{0}'.format(i + 1))(output)
+
+                x = keras.layers.Activation('elu', name='cornet_elu_{0}'.format(i + 1))(x)
+                x = Dense(labels_num, kernel_initializer='glorot_uniform', name='cornet_2nd_dense_{0}'.format(i + 1))(x)
+
+                # x = Dense(labels_num, kernel_initializer=keras.initializers.glorot_uniform(seed=None), activation='elu',
+                #           name='cornet_2nd_dense_{0}'.format(i + 1))(x)
+
+                output = Add()([x, x_shortcut])
+
         model = Model(input_tensor, output)
         model.summary()
         model.compile(optimizer='adam', loss='binary_crossentropy', metrics=[tf.keras.metrics.Precision(top_k=5)])
         # model.compile(optimizer='adam', loss='binary_crossentropy', metrics=[tf.keras.metrics.top_k_categorical_accuracy(k=5)])
         model.fit_generator(steps_per_epoch=data_num / batch_size,
                             generator=batch_generator(train_x, train_y, batch_size),
-                            nb_epoch=nb_epochs)
+                            validation_data=batch_generator(valid_x, valid_y, batch_size),
+                            validation_steps=valid_x.shape[0] / batch_size,
+                            nb_epoch=nb_epochs, callbacks=[csv_logger])
         model.save(model_path)
     elif mode is None or mode == 'eval':
         logger.info('Loading Training and Validation Set')
         train_x, train_labels = get_data(data_cnf['train']['texts'], data_cnf['train']['labels'])
-        if 'size' in data_cnf['valid']:#如果有設定valid的size 則直接使用train的一部分作為valid
+        if 'size' in data_cnf['valid']:  # 如果有設定valid的size 則直接使用train的一部分作為valid
             random_state = data_cnf['valid'].get('random_state', 1240)
             train_x, valid_x, train_labels, valid_labels = train_test_split(train_x, train_labels,
                                                                             test_size=data_cnf['valid']['size'],
@@ -259,6 +287,6 @@ if __name__ == '__main__':
     # print("torch cuda is available: ", torch.cuda.is_available())
     PROJECT_CONF = "E:/PycharmProject/CorNet/configure/"
     data_cnf = PROJECT_CONF + "datasets/EUR-Lex.yaml"
-    model_cnf = PROJECT_CONF + "models/Keras-CorNetXMLCNN-EUR-Lex.yaml"
-    mode = "eval"
+    model_cnf = PROJECT_CONF + "models/Keras-CorNetXMLCNN-EUR-Lex2.yaml"
+    mode = "train"
     main(data_cnf=data_cnf, model_cnf=model_cnf, mode=mode)
