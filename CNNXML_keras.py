@@ -1,7 +1,12 @@
+import warnings
+
+warnings.filterwarnings('ignore')
+
 import keras
+from keras import backend as K
 from keras.models import Sequential, Model
-from keras.layers import Flatten, Dense, Embedding, Dropout, GlobalMaxPooling1D, Input, Convolution1D, Convolution2D, \
-    BatchNormalization, Activation, MaxPooling2D, GlobalMaxPool2D, Lambda, concatenate
+from keras.layers import Dense, Embedding, Dropout, GlobalMaxPooling1D, Input, Convolution1D, Convolution2D, \
+    MaxPooling2D, concatenate
 import tensorflow as tf
 
 from deepxml.dataset import MultiLabelDataset
@@ -14,7 +19,55 @@ from pathlib import Path
 from ruamel.yaml import YAML
 from sklearn.model_selection import train_test_split
 
-import math
+from sklearn.preprocessing import MultiLabelBinarizer
+
+from deepxml.evaluation import get_p_1, get_p_3, get_p_5, get_n_1, get_n_3, get_n_5, get_inv_propensity
+from deepxml.evaluation import get_psp_1, get_psp_3, get_psp_5, get_psndcg_1, get_psndcg_3, get_psndcg_5
+
+
+def p5(y_true, y_pred):
+    def recall(y_true, y_pred):
+        """Recall metric.
+
+        Only computes a batch-wise average of recall.
+
+        Computes the recall, a metric for multi-label classification of
+        how many relevant items are selected.
+        """
+        true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+        possible_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
+        recall = true_positives / (possible_positives + K.epsilon())
+        return recall
+
+    def precision(y_true, y_pred):
+        """Precision metric.
+
+        Only computes a batch-wise average of precision.
+
+        Computes the precision, a metric for multi-label classification of
+        how many selected items are relevant.
+        """
+        true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+        predicted_positives = K.sum(K.round(K.clip(y_pred, 0, 1)))
+        precision = true_positives / (predicted_positives + K.epsilon())
+        return precision
+
+    def precisionatk(y_true, y_pred, k=5):
+        y_pred_array = np.array(y_pred)
+        y_true_array = np.array(y_true)
+        precision_average = []
+        idx = (-y_pred_array).argsort(axis=-1)[:, :k]
+        for i in range(idx.shape[0]):
+            precision_sample = 0
+            for j in idx[i, :]:
+                if y_true_array[i, j] == 1:
+                    precision_sample += 1
+            precision_sample = precision_sample / k
+            precision_average.append(precision_sample)
+        return np.mean(precision_average)
+
+    precision = precisionatk(y_true, y_pred)
+    return precision
 
 
 def batch_generator(X_data, y_data, batch_size):
@@ -36,7 +89,7 @@ def batch_generator(X_data, y_data, batch_size):
         index_batch = index[batch_size * counter:batch_size * (counter + 1)]
         X_batch = X_data[index_batch, :]
         y_batch = y_data[index_batch].todense()
-        if (len(index_batch) < 40):
+        if (len(index_batch) < batch_size):
             counter = 0
             continue
         counter += 1
@@ -110,7 +163,7 @@ def main(data_cnf, model_cnf, mode):
         batch_size = model_cnf['train']['batch_size']
         max_length = 500
 
-        input_tensor = keras.Input(shape=(max_length,), name='input')
+        input_tensor = Input(batch_shape=(batch_size, max_length), name='input')
         emb_data = Embedding(input_dim=vocab_size,
                              output_dim=emb_size,
                              input_length=max_length,
@@ -144,55 +197,68 @@ def main(data_cnf, model_cnf, mode):
         # conv3_output = Lambda(reshape_tensor, arguments={'shape': (batch_size, max_length, output_channel)},
         #                       name='conv3_lambda')(
         #     conv3_output)
-
+        # pool1 = adapmaxpooling(conv1_output, dynamic_pool_length)
         pool1 = GlobalMaxPooling1D(name='globalmaxpooling1')(conv1_output)
         pool2 = GlobalMaxPooling1D(name='globalmaxpooling2')(conv2_output)
         pool3 = GlobalMaxPooling1D(name='globalmaxpooling3')(conv3_output)
         output = concatenate([pool1, pool2, pool3], axis=-1)
         # output = Dense(num_bottleneck_hidden, activation='relu',name='bottleneck')(output)
-        output = Dropout(0.5, name='dropout1')(output)
+        output = Dropout(drop_out, name='dropout1')(output)
         output = Dense(3801, activation='softmax', name='dense_final',
                        kernel_initializer=keras.initializers.glorot_uniform(seed=None))(output)
         model = Model(input_tensor, output)
         model.summary()
         model.compile(optimizer='adam', loss='binary_crossentropy', metrics=[tf.keras.metrics.Precision(top_k=5)])
-        history = model.fit_generator(steps_per_epoch=data_num / batch_size,
-                                      generator=batch_generator(train_x, train_y, batch_size),
-                                      nb_epoch=nb_epochs,
-                                      validation_data=batch_generator(valid_x, valid_y, batch_size),
-                                      nb_val_samples=valid_x.shape[0])
+        # model.compile(optimizer='adam', loss='binary_crossentropy', metrics=[tf.keras.metrics.top_k_categorical_accuracy(k=5)])
+        model.fit_generator(steps_per_epoch=data_num / batch_size,
+                            generator=batch_generator(train_x, train_y, batch_size),
+                            nb_epoch=nb_epochs)
         model.save(model_path)
-        if mode is None or mode == 'eval':
-            # logger.info('Loading Training and Validation Set')
-            # train_x, train_labels = get_data(data_cnf['train']['texts'], data_cnf['train']['labels'])
-            # if 'size' in data_cnf['valid']:
-            #     random_state = data_cnf['valid'].get('random_state', 1240)
-            #     train_x, valid_x, train_labels, valid_labels = train_test_split(train_x, train_labels,
-            #                                                                     test_size=data_cnf['valid']['size'],
-            #                                                                     random_state=random_state)
-            # else:
-            #     valid_x, valid_labels = get_data(data_cnf['valid']['texts'], data_cnf['valid']['labels'])
-            # mlb = get_mlb(data_cnf['labels_binarizer'], np.hstack((train_labels, valid_labels)))
-            # train_y, valid_y = mlb.transform(train_labels), mlb.transform(valid_labels)
-            # labels_num = len(mlb.classes_)
-            # logger.info(F'Number of Labels: {labels_num}')
-            # logger.info(F'Size of Training Set: {len(train_x)}')
-            # logger.info(F'Size of Validation Set: {len(valid_x)}')
-
-            logger.info('Loading Test Set')
+    elif mode is None or mode == 'eval':
+        logger.info('Loading Training and Validation Set')
+        train_x, train_labels = get_data(data_cnf['train']['texts'], data_cnf['train']['labels'])
+        if 'size' in data_cnf['valid']:#如果有設定valid的size 則直接使用train的一部分作為valid
+            random_state = data_cnf['valid'].get('random_state', 1240)
+            train_x, valid_x, train_labels, valid_labels = train_test_split(train_x, train_labels,
+                                                                            test_size=data_cnf['valid']['size'],
+                                                                            random_state=random_state)
+        else:
+            valid_x, valid_labels = get_data(data_cnf['valid']['texts'], data_cnf['valid']['labels'])
+        mlb = get_mlb(data_cnf['labels_binarizer'], np.hstack((train_labels, valid_labels)))
+        train_y, valid_y = mlb.transform(train_labels), mlb.transform(valid_labels)
+        labels_num = len(mlb.classes_)
+        ##################################################################################################
+        logger.info('Loading Test Set')
         logger.info('model path: ', model_path)
         mlb = get_mlb(data_cnf['labels_binarizer'])
         labels_num = len(mlb.classes_)
-        test_x, _ = get_data(data_cnf['test']['texts'], None)
+        test_x, test_label = get_data(data_cnf['test']['texts'], data_cnf['test']['labels'])
         logger.info(F'Size of Test Set: {len(test_x)}')
+        test_y = mlb.transform(test_label).toarray()
+        model = tf.keras.models.load_model(model_path)
+        score = model.predict(test_x)
+        print("p5: ", p5(test_y, score))
 
-        model = keras.models.load_model(model_path)
-        model.predict(test_x)
 
-        if __name__ == '__main__':
-            # print("torch cuda is available: ", torch.cuda.is_available())
-            PROJECT_CONF = "E:/PycharmProject/CorNet/configure/"
-        data_cnf = PROJECT_CONF + "datasets/EUR-Lex.yaml"
-        model_cnf = PROJECT_CONF + "models/Keras-CorNetXMLCNN-EUR-Lex.yaml"
-        mode = "train"
-        main(data_cnf=data_cnf, model_cnf=model_cnf, mode=mode)
+def evalucate(results, targets, train_labels, a=0.55, b=1.5):
+    res, targets = np.load(results, allow_pickle=True), np.load(targets, allow_pickle=True)
+    mlb = MultiLabelBinarizer(sparse_output=True)
+    targets = mlb.fit_transform(targets)
+    print('Precision@1,3,5:', get_p_1(res, targets, mlb), get_p_3(res, targets, mlb), get_p_5(res, targets, mlb))
+    print('nDCG@1,3,5:', get_n_1(res, targets, mlb), get_n_3(res, targets, mlb), get_n_5(res, targets, mlb))
+    if train_labels is not None:
+        train_labels = np.load(train_labels, allow_pickle=True)
+        inv_w = get_inv_propensity(mlb.transform(train_labels), a, b)
+        print('PSPrecision@1,3,5:', get_psp_1(res, targets, inv_w, mlb), get_psp_3(res, targets, inv_w, mlb),
+              get_psp_5(res, targets, inv_w, mlb))
+        print('PSnDCG@1,3,5:', get_psndcg_1(res, targets, inv_w, mlb), get_psndcg_3(res, targets, inv_w, mlb),
+              get_psndcg_5(res, targets, inv_w, mlb))
+
+
+if __name__ == '__main__':
+    # print("torch cuda is available: ", torch.cuda.is_available())
+    PROJECT_CONF = "E:/PycharmProject/CorNet/configure/"
+    data_cnf = PROJECT_CONF + "datasets/EUR-Lex.yaml"
+    model_cnf = PROJECT_CONF + "models/Keras-CorNetXMLCNN-EUR-Lex.yaml"
+    mode = "eval"
+    main(data_cnf=data_cnf, model_cnf=model_cnf, mode=mode)

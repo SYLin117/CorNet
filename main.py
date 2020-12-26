@@ -120,7 +120,7 @@ def main(data_cnf, model_cnf, mode):
             if model is None:
                 model = GPipeModel(model_name, labels_num=labels_num, model_path=model_path, emb_init=emb_init,
                                    **data_cnf['model'], **model_cnf['model'])
-        scores, labels = model.predict(test_loader, k=model_cnf['predict'].get('k', 100))
+        scores, labels = model.predict(test_loader, k=model_cnf['predict'].get('k', 3801))
         logger.info('Finish Predicting')
         labels = mlb.classes_[labels]
         output_res(data_cnf['output']['res'], F'{model_name}-{data_name}', scores, labels)
