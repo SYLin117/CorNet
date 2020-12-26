@@ -10,6 +10,7 @@ from deepxml.data_utils import build_vocab, convert_to_binary
 
 import parameter
 
+
 def tokenize(sentence: str, sep='/SEP/'):
     # We added a /SEP/ symbol between titles and descriptions such as Amazon datasets.
     return [token.lower() if token != sep else token for token in word_tokenize(sentence)
@@ -27,7 +28,7 @@ def tokenize(sentence: str, sep='/SEP/'):
 # @click.option('--vocab-size', type=click.INT, default=500000, help='Size of vocab.')
 # @click.option('--max-len', type=click.INT, default=500, help='Truncated length.')
 def main(text_path, tokenized_path=None, label_path=None, vocab_path=None, emb_path=None, w2v_model=None,
-         vocab_size=500000, max_len=500):
+         vocab_size=500000, max_len=100):
     if tokenized_path is not None:
         logger.info(F'Tokenizing Text. {text_path}')
         with open(text_path, encoding='UTF-8') as fp, open(tokenized_path, 'w') as fout:

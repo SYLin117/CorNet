@@ -1,6 +1,6 @@
 import keras
 from keras.models import Sequential, Model
-from keras.layers import Flatten, Dense, Embedding, Conv1D, Conv2D, Dropout, GlobalMaxPooling1D, Input, Convolution2D, \
+from keras.layers import Flatten, Dense, Embedding, Dropout, GlobalMaxPooling1D, Input, Convolution1D, Convolution2D, \
     BatchNormalization, Activation, MaxPooling2D, GlobalMaxPool2D, Lambda, concatenate
 import tensorflow as tf
 
@@ -102,82 +102,84 @@ def main(data_cnf, model_cnf, mode):
         # 可調參數
         data_num = len(train_x)
         ks = 3
-        output_channel = 128
+        output_channel = model_cnf['model']['num_filters']
         dynamic_pool_length = model_cnf['model']['dynamic_pool_length']
         num_bottleneck_hidden = model_cnf['model']['bottleneck_dim']
         drop_out = model_cnf['model']['dropout']
         nb_epochs = model_cnf['train']['nb_epoch']
         batch_size = model_cnf['train']['batch_size']
-        glorot_uniform_initializer = tf.compat.v1.keras.initializers.glorot_uniform()
-        glorot_normal_initializer = tf.compat.v1.keras.initializers.glorot_normal()
+        max_length = 500
 
-        input_tensor = keras.Input(batch_shape=(batch_size, 500), name='text')
-        emb_data = Embedding(vocab_size,
-                             emb_size,
+        input_tensor = keras.Input(shape=(max_length,), name='input')
+        emb_data = Embedding(input_dim=vocab_size,
+                             output_dim=emb_size,
+                             input_length=max_length,
                              weights=[emb_init],
-                             trainable=False)(input_tensor)
+                             trainable=False,
+                             name='embedding1')(input_tensor)
+        emb_data.trainable = False
         # emd_out_4d = keras.layers.core.RepeatVector(1)(emb_data)
         # unsqueeze_emb_data = tf.keras.layers.Reshape((1, 500, 300), input_shape=(500, 300))(emb_data)
         # emb_data = tf.expand_dims(emb_data, axis=1)
-        emb_data = Lambda(reshape_tensor, arguments={'shape': (batch_size, 1, 500, 300)})(emb_data)
+        # emb_data = Lambda(reshape_tensor, arguments={'shape': (1, max_length, 300)}, name='lambda1')(
+        #     emb_data)
 
-        conv1_output = Convolution2D(output_channel, kernel_size=(2, emb_size), padding='same',
+        conv1_output = Convolution1D(output_channel, 2, padding='same',
                                      kernel_initializer=keras.initializers.glorot_uniform(seed=None),
-                                     activation='relu')(emb_data)
-        conv1_output = Lambda(reshape_tensor, arguments={'shape': (batch_size, 500, output_channel)})(conv1_output)
+                                     activation='relu', name='conv1')(emb_data)
+        # conv1_output = Lambda(reshape_tensor, arguments={'shape': (batch_size, max_length, output_channel)},
+        #                       name='conv1_lambda')(
+        #     conv1_output)
 
-        conv2_output = Convolution2D(output_channel, kernel_size=(4, emb_size), padding='same',
+        conv2_output = Convolution1D(output_channel, 4, padding='same',
                                      kernel_initializer=keras.initializers.glorot_uniform(seed=None),
-                                     activation='relu')(emb_data)
-        conv2_output = Lambda(reshape_tensor, arguments={'shape': (batch_size, 500, output_channel)})(conv2_output)
+                                     activation='relu', name='conv2')(emb_data)
+        # conv2_output = Lambda(reshape_tensor, arguments={'shape': (batch_size, max_length, output_channel)},
+        #                       name='conv2_lambda')(
+        #     conv2_output)
 
-        conv3_output = Convolution2D(output_channel, kernel_size=(8, emb_size), padding='same',
+        conv3_output = Convolution1D(output_channel, 8, padding='same',
                                      kernel_initializer=keras.initializers.glorot_uniform(seed=None),
-                                     activation='relu')(emb_data)
-        conv3_output = Lambda(reshape_tensor, arguments={'shape': (batch_size, 500, output_channel)})(conv3_output)
+                                     activation='relu', name='conv3')(emb_data)
+        # conv3_output = Lambda(reshape_tensor, arguments={'shape': (batch_size, max_length, output_channel)},
+        #                       name='conv3_lambda')(
+        #     conv3_output)
 
-        pool1 = GlobalMaxPooling1D()(conv1_output)
-        pool2 = GlobalMaxPooling1D()(conv2_output)
-        pool3 = GlobalMaxPooling1D()(conv3_output)
+        pool1 = GlobalMaxPooling1D(name='globalmaxpooling1')(conv1_output)
+        pool2 = GlobalMaxPooling1D(name='globalmaxpooling2')(conv2_output)
+        pool3 = GlobalMaxPooling1D(name='globalmaxpooling3')(conv3_output)
         output = concatenate([pool1, pool2, pool3], axis=-1)
-        output = Dense(num_bottleneck_hidden, activation='relu')(output)
-        output = Dense(3801, activation='softmax')(output)
-
-        # model.add(Dense(num_bottleneck_hidden, input_shape=(ks * output_channel * dynamic_pool_length,), activation='relu',
-        #                initializer=glorot_uniform_initializer))
-        # model.add(Dropout(drop_out))
-        # model.add(Dense(labels_num, input_shape=(num_bottleneck_hidden,), activation='relu',
-        #                initializer=glorot_uniform_initializer))
-        # model.compile(loss='binary_crossentropy', optimizer='adam', metrics=[tf.keras.metrics.Precision(top_k=5)])
-        # XMLCNN = Model
+        # output = Dense(num_bottleneck_hidden, activation='relu',name='bottleneck')(output)
+        output = Dropout(0.5, name='dropout1')(output)
+        output = Dense(3801, activation='softmax', name='dense_final',
+                       kernel_initializer=keras.initializers.glorot_uniform(seed=None))(output)
         model = Model(input_tensor, output)
         model.summary()
         model.compile(optimizer='adam', loss='binary_crossentropy', metrics=[tf.keras.metrics.Precision(top_k=5)])
-        # history = model.fit_generator(train_x, train_y.toArray(), epochs=epochs, batch_size=batch_size,
-        #                               validation_data=(valid_x, valid_y.toArray()))
-        model.fit_generator(steps_per_epoch=data_num / batch_size,
-                            generator=batch_generator(train_x, train_y, batch_size),
-                            nb_epoch=nb_epochs)
-
+        history = model.fit_generator(steps_per_epoch=data_num / batch_size,
+                                      generator=batch_generator(train_x, train_y, batch_size),
+                                      nb_epoch=nb_epochs,
+                                      validation_data=batch_generator(valid_x, valid_y, batch_size),
+                                      nb_val_samples=valid_x.shape[0])
         model.save(model_path)
-    if mode is None or mode == 'eval':
-        # logger.info('Loading Training and Validation Set')
-        # train_x, train_labels = get_data(data_cnf['train']['texts'], data_cnf['train']['labels'])
-        # if 'size' in data_cnf['valid']:
-        #     random_state = data_cnf['valid'].get('random_state', 1240)
-        #     train_x, valid_x, train_labels, valid_labels = train_test_split(train_x, train_labels,
-        #                                                                     test_size=data_cnf['valid']['size'],
-        #                                                                     random_state=random_state)
-        # else:
-        #     valid_x, valid_labels = get_data(data_cnf['valid']['texts'], data_cnf['valid']['labels'])
-        # mlb = get_mlb(data_cnf['labels_binarizer'], np.hstack((train_labels, valid_labels)))
-        # train_y, valid_y = mlb.transform(train_labels), mlb.transform(valid_labels)
-        # labels_num = len(mlb.classes_)
-        # logger.info(F'Number of Labels: {labels_num}')
-        # logger.info(F'Size of Training Set: {len(train_x)}')
-        # logger.info(F'Size of Validation Set: {len(valid_x)}')
+        if mode is None or mode == 'eval':
+            # logger.info('Loading Training and Validation Set')
+            # train_x, train_labels = get_data(data_cnf['train']['texts'], data_cnf['train']['labels'])
+            # if 'size' in data_cnf['valid']:
+            #     random_state = data_cnf['valid'].get('random_state', 1240)
+            #     train_x, valid_x, train_labels, valid_labels = train_test_split(train_x, train_labels,
+            #                                                                     test_size=data_cnf['valid']['size'],
+            #                                                                     random_state=random_state)
+            # else:
+            #     valid_x, valid_labels = get_data(data_cnf['valid']['texts'], data_cnf['valid']['labels'])
+            # mlb = get_mlb(data_cnf['labels_binarizer'], np.hstack((train_labels, valid_labels)))
+            # train_y, valid_y = mlb.transform(train_labels), mlb.transform(valid_labels)
+            # labels_num = len(mlb.classes_)
+            # logger.info(F'Number of Labels: {labels_num}')
+            # logger.info(F'Size of Training Set: {len(train_x)}')
+            # logger.info(F'Size of Validation Set: {len(valid_x)}')
 
-        logger.info('Loading Test Set')
+            logger.info('Loading Test Set')
         logger.info('model path: ', model_path)
         mlb = get_mlb(data_cnf['labels_binarizer'])
         labels_num = len(mlb.classes_)
@@ -187,11 +189,10 @@ def main(data_cnf, model_cnf, mode):
         model = keras.models.load_model(model_path)
         model.predict(test_x)
 
-
-if __name__ == '__main__':
-    # print("torch cuda is available: ", torch.cuda.is_available())
-    PROJECT_CONF = "E:/PycharmProject/CorNet/configure/"
-    data_cnf = PROJECT_CONF + "datasets/EUR-Lex.yaml"
-    model_cnf = PROJECT_CONF + "models/Keras-CorNetXMLCNN-EUR-Lex.yaml"
-    mode = "train"
-    main(data_cnf=data_cnf, model_cnf=model_cnf, mode=mode)
+        if __name__ == '__main__':
+            # print("torch cuda is available: ", torch.cuda.is_available())
+            PROJECT_CONF = "E:/PycharmProject/CorNet/configure/"
+        data_cnf = PROJECT_CONF + "datasets/EUR-Lex.yaml"
+        model_cnf = PROJECT_CONF + "models/Keras-CorNetXMLCNN-EUR-Lex.yaml"
+        mode = "train"
+        main(data_cnf=data_cnf, model_cnf=model_cnf, mode=mode)
