@@ -25,6 +25,8 @@ from deepxml.evaluation import get_p_1, get_p_3, get_p_5, get_n_1, get_n_3, get_
 from deepxml.evaluation import get_psp_1, get_psp_3, get_psp_5, get_psndcg_1, get_psndcg_3, get_psndcg_5
 
 from keras.callbacks import CSVLogger
+import pydot as pyd
+from keras.utils.vis_utils import model_to_dot
 
 
 def p5(y_true, y_pred):
@@ -136,7 +138,7 @@ def main(data_cnf, model_cnf, mode):
 
     # keras log file
     csv_logger = CSVLogger('./logs/' + model_name + '_log.csv', append=True, separator=',')
-
+    early_stopping_callback = tf.keras.callbacks.EarlyStopping(monitor='loss', patience=3)
     if mode is None or mode == 'train':
         logger.info('Loading Training and Validation Set')
         train_x, train_labels = get_data(data_cnf['train']['texts'], data_cnf['train']['labels'])
@@ -210,7 +212,7 @@ def main(data_cnf, model_cnf, mode):
         pool2 = GlobalMaxPooling1D(name='globalmaxpooling2')(conv2_output)
         pool3 = GlobalMaxPooling1D(name='globalmaxpooling3')(conv3_output)
         output = concatenate([pool1, pool2, pool3], axis=-1)
-        # output = Dense(num_bottleneck_hidden, activation='relu',name='bottleneck')(output)
+        output = Dense(num_bottleneck_hidden, activation='relu', name='xmlcnn_bottleneck')(output)
         output = Dropout(drop_out, name='dropout1')(output)
         output = Dense(labels_num, activation='softmax', name='dense_final',
                        kernel_initializer=keras.initializers.glorot_uniform(seed=None))(output)
@@ -218,13 +220,13 @@ def main(data_cnf, model_cnf, mode):
         if nb_cornet_block > 0:
             for i in range(nb_cornet_block):
                 x_shortcut = output
-                x = keras.layers.Activation('sigmoid', name='cornet_sigmoid_{0}'.format(i + 1))(output)
+                x = keras.layers.Activation(activation='sigmoid', name='cornet_sigmoid_{0}'.format(i + 1))(output)
                 x = Dense(cornet_dim, kernel_initializer='glorot_uniform', name='cornet_1st_dense_{0}'.format(i + 1))(x)
 
                 # x = Dense(cornet_dim, kernel_initializer=keras.initializers.glorot_uniform(seed=None),
                 #           activation='sigmoid', name='cornet_1st_dense_{0}'.format(i + 1))(output)
 
-                x = keras.layers.Activation('elu', name='cornet_elu_{0}'.format(i + 1))(x)
+                x = keras.layers.Activation(activation='elu', name='cornet_elu_{0}'.format(i + 1))(x)
                 x = Dense(labels_num, kernel_initializer='glorot_uniform', name='cornet_2nd_dense_{0}'.format(i + 1))(x)
 
                 # x = Dense(labels_num, kernel_initializer=keras.initializers.glorot_uniform(seed=None), activation='elu',
@@ -232,15 +234,16 @@ def main(data_cnf, model_cnf, mode):
 
                 output = Add()([x, x_shortcut])
 
-        model = Model(input_tensor, output)
-        model.summary()
+        model = Model(input_tensor, output, name='XMLCNN')
+        keras.utils.plot_model(model, to_file='keras_xmlcnn.png', show_shapes=True)
+        # model.summary()
         model.compile(optimizer='adam', loss='binary_crossentropy', metrics=[tf.keras.metrics.Precision(top_k=5)])
         # model.compile(optimizer='adam', loss='binary_crossentropy', metrics=[tf.keras.metrics.top_k_categorical_accuracy(k=5)])
         model.fit_generator(steps_per_epoch=data_num / batch_size,
                             generator=batch_generator(train_x, train_y, batch_size),
                             validation_data=batch_generator(valid_x, valid_y, batch_size),
                             validation_steps=valid_x.shape[0] / batch_size,
-                            nb_epoch=nb_epochs, callbacks=[csv_logger])
+                            nb_epoch=nb_epochs, callbacks=[csv_logger, early_stopping_callback])
         model.save(model_path)
     elif mode is None or mode == 'eval':
         logger.info('Loading Training and Validation Set')
@@ -287,6 +290,7 @@ if __name__ == '__main__':
     # print("torch cuda is available: ", torch.cuda.is_available())
     PROJECT_CONF = "E:/PycharmProject/CorNet/configure/"
     data_cnf = PROJECT_CONF + "datasets/EUR-Lex.yaml"
-    model_cnf = PROJECT_CONF + "models/Keras-CorNetXMLCNN-EUR-Lex2.yaml"
+    model_cnf = PROJECT_CONF + "models/Keras-CorNetXMLCNN-EUR-Lex.yaml"
+    # model_cnf = PROJECT_CONF + "models/Keras-CorNetXMLCNN-EUR-Lex2.yaml"
     mode = "train"
     main(data_cnf=data_cnf, model_cnf=model_cnf, mode=mode)
