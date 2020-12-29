@@ -164,7 +164,7 @@ def main(data_cnf, model_cnf, mode):
         dynamic_pool_length = model_cnf['model']['dynamic_pool_length']
         num_bottleneck_hidden = model_cnf['model']['bottleneck_dim']
         drop_out = model_cnf['model']['dropout']
-        cornet_dim = model_cnf['model']['cornet_dim']
+        cornet_dim = model_cnf['model'].get('nb_cornet_block', 0)
         nb_cornet_block = model_cnf['model'].get('nb_cornet_block', 0)
         nb_epochs = model_cnf['train']['nb_epoch']
         batch_size = model_cnf['train']['batch_size']
