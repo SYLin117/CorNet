@@ -218,13 +218,15 @@ def main(data_cnf, model_cnf, mode):
         if nb_cornet_block > 0:
             for i in range(nb_cornet_block):
                 x_shortcut = output
-                x = keras.layers.Activation('sigmoid', name='cornet_sigmoid_{0}'.format(i + 1))(output)
+                # x = keras.layers.Activation('sigmoid', name='cornet_sigmoid_{0}'.format(i + 1))(output)
+                x = keras.activations.sigmoid(output, axis=-1)
                 x = Dense(cornet_dim, kernel_initializer='glorot_uniform', name='cornet_1st_dense_{0}'.format(i + 1))(x)
 
                 # x = Dense(cornet_dim, kernel_initializer=keras.initializers.glorot_uniform(seed=None),
                 #           activation='sigmoid', name='cornet_1st_dense_{0}'.format(i + 1))(output)
 
-                x = keras.layers.Activation('elu', name='cornet_elu_{0}'.format(i + 1))(x)
+                # x = keras.layers.Activation('elu', name='cornet_elu_{0}'.format(i + 1))(x)
+                x = keras.activations.elu(x, alpha=1.0)
                 x = Dense(labels_num, kernel_initializer='glorot_uniform', name='cornet_2nd_dense_{0}'.format(i + 1))(x)
 
                 # x = Dense(labels_num, kernel_initializer=keras.initializers.glorot_uniform(seed=None), activation='elu',
