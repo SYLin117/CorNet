@@ -15,7 +15,8 @@ from deepxml.gpipe_modules import gpipe_encoder, gpipe_decoder
 from torchgpipe import GPipe
 from torchsummary import summary
 
-
+from torchviz import make_dot, make_dot_from_trace
+import time
 class Model(object):
 
     def __init__(self, network, model_path, gradient_clip_value=5.0, device_ids=None, **kwargs):
@@ -58,6 +59,12 @@ class Model(object):
         # scores = self.model(train_x)
         # 原本會出現error: RuntimeError: Expected tensor for argument #1 'indices' to have scalar type Long; but got torch.cuda.DoubleTensor instead (while checking arguments for embedding)
         scores = self.model(train_x.long())
+
+        #把model劃出來
+        dot = make_dot(scores, params=dict(list(self.model.named_parameters()) + [('train_x', train_x)]))
+        dot.render('./pytorch_cornet')
+        #time.sleep(10000)
+
         loss = self.loss_fn(scores, train_y)
         loss.backward()
         self.clip_gradient()
